@@ -477,8 +477,11 @@ export function scoreCandidates(
   candidates: RankRow[],
   prefs: Preferences | null,
   /** Learned profile. Omit for the stated-preferences-only ranking. */
-  taste: TasteProfile | null = null
+  taste: TasteProfile | null = null,
+  /** Only ?debug=true reads the notes; skipping them is ~20% of scoring. */
+  options: { notes?: boolean } = {}
 ): Scored[] {
+  buildNotes = options.notes ?? true;
   const proteinDist = distributionOf(candidates, (r) => r.protein_grams);
   const calorieDist = distributionOf(candidates, (r) => r.calories);
   const timeDist = distributionOf(candidates, (r) => r.total_minutes);
@@ -515,8 +518,26 @@ export function scoreCandidates(
   });
 }
 
-function inactive(name: Component["name"], note: string): Component {
-  return { name, raw: null, weight: 0, points: 0, note };
+/**
+ * Whether to build the plain-language notes.
+ *
+ * They exist only for ?debug=true — the route reads `components` nowhere else.
+ * Building them for every candidate meant 70,945 strings and ~3.5 MB of text
+ * per request, of which 140 were ever shown: 20% of scoring spent on output
+ * discarded 99.8% of the time.
+ *
+ * Module-scoped rather than threaded through seven signatures. Safe because
+ * scoreCandidates is synchronous — nothing interleaves between set and read.
+ */
+let buildNotes = true;
+
+/** Builds the note only when notes are switched on. */
+function note(build: () => string): string {
+  return buildNotes ? build() : "";
+}
+
+function inactive(name: Component["name"], noteText: string): Component {
+  return { name, raw: null, weight: 0, points: 0, note: noteText };
 }
 
 function proteinComponent(
@@ -551,11 +572,11 @@ function proteinComponent(
       raw: round(raw),
       weight: WEIGHTS.PROTEIN,
       points,
-      note: `${row.protein_grams}g ${
+      note: note(() => `${row.protein_grams}g ${
         estimated ? "estimated" : "measured"
       } — beats ${Math.round(p * 100)}% of the ${dist.count} candidates with a number${
         estimated ? ` (×${ESTIMATED_DISCOUNT} estimated discount)` : ""
-      }`,
+      }`),
     };
   }
 
@@ -566,9 +587,9 @@ function proteinComponent(
     raw,
     weight: WEIGHTS.PROTEIN,
     points: round(raw * WEIGHTS.PROTEIN),
-    note: tagged
+    note: note(() => tagged
       ? `no measured protein — high_protein tag, scored at the ${TAG_FALLBACK} fallback`
-      : "no measured protein and no high_protein tag — no evidence, no boost",
+      : "no measured protein and no high_protein tag — no evidence, no boost"),
   };
 }
 
@@ -588,7 +609,7 @@ function calorieComponent(
       raw: 0,
       weight: WEIGHTS.CALORIE,
       points: 0,
-      note: "no calorie data — nothing to score, no boost",
+      note: note(() => "no calorie data — nothing to score, no boost"),
     };
   }
 
@@ -606,13 +627,12 @@ function calorieComponent(
     raw: round(raw),
     weight: WEIGHTS.CALORIE,
     points: round(raw * WEIGHTS.CALORIE),
-    note:
-      `${row.calories} cal — lower than ${Math.round(lowness * 100)}% of ${
+    note: note(() => `${row.calories} cal — lower than ${Math.round(lowness * 100)}% of ${
         dist.count
       } candidates` +
       (mealFactor < 1
         ? `, scaled ×${round(mealFactor)} for sitting under the ${CALORIE_MEAL_FLOOR}-cal meal floor`
-        : ""),
+        : "")),
   };
 }
 
@@ -639,9 +659,9 @@ function conceptComponent(
     raw: round(raw),
     weight,
     points: round(raw * weight),
-    note: wanted.length
+    note: note(() => wanted.length
       ? `${hit.length}/${target.length} of ${target.join(", ")}`
-      : `never asked — cold-start prior on ${target.join(", ")} at ${COLD_START}× weight`,
+      : `never asked — cold-start prior on ${target.join(", ")} at ${COLD_START}× weight`),
   };
 }
 
@@ -666,13 +686,13 @@ function cuisineComponent(
     raw,
     weight,
     points: round(raw * weight),
-    note: hasPreference(answer)
+    note: note(() => hasPreference(answer)
       ? match
         ? `${row.cuisine} is a favourite`
         : `${row.cuisine ?? "unknown"} is not among ${target.join(", ")}`
       : `never asked — cold-start prior, ${row.cuisine ?? "unknown"} ${
           match ? "is" : "is not"
-        } a popular cuisine`,
+        } a popular cuisine`),
   };
 }
 
@@ -684,7 +704,7 @@ function dishComponent(row: RankRow): Component {
       raw: UNTAGGED_DISH_SCORE,
       weight: WEIGHTS.MAIN_DISH,
       points: round(UNTAGGED_DISH_SCORE * WEIGHTS.MAIN_DISH),
-      note: "no meal type recorded — scored neutral rather than assumed a side",
+      note: note(() => "no meal type recorded — scored neutral rather than assumed a side"),
     };
   }
 
@@ -696,7 +716,7 @@ function dishComponent(row: RankRow): Component {
     raw: round(raw),
     weight: WEIGHTS.MAIN_DISH,
     points: round(raw * WEIGHTS.MAIN_DISH),
-    note: `${types.join("/")} — scores ${round(raw)} as a thing to cook for a meal`,
+    note: note(() => `${types.join("/")} — scores ${round(raw)} as a thing to cook for a meal`),
   };
 }
 
@@ -720,9 +740,9 @@ function tasteComponent(row: RankRow, taste: TasteProfile | null): Component {
     raw: round(normalized),
     weight: WEIGHTS.TASTE,
     points: round(normalized * WEIGHTS.TASTE),
-    note: reasons.length
+    note: note(() => reasons.length
       ? `learned from ${taste.rights} saves / ${taste.lefts} passes (confidence ${round(taste.confidence)}): ${reasons.join(", ")}`
-      : `learned profile has nothing on this card — scored neutral`,
+      : `learned profile has nothing on this card — scored neutral`),
   };
 }
 
@@ -735,7 +755,7 @@ function effortComponent(row: RankRow, dist: Distribution): Component {
       raw: 0.5,
       weight: WEIGHTS.EFFORT,
       points: round(0.5 * WEIGHTS.EFFORT),
-      note: "unknown time — scored neutral rather than penalised",
+      note: note(() => "unknown time — scored neutral rather than penalised"),
     };
   }
 
@@ -745,9 +765,9 @@ function effortComponent(row: RankRow, dist: Distribution): Component {
     raw: round(raw),
     weight: WEIGHTS.EFFORT,
     points: round(raw * WEIGHTS.EFFORT),
-    note: `${row.total_minutes} min — faster than ${Math.round(raw * 100)}% of ${
+    note: note(() => `${row.total_minutes} min — faster than ${Math.round(raw * 100)}% of ${
       dist.count
-    } candidates`,
+    } candidates`),
   };
 }
 

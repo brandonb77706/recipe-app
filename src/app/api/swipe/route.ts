@@ -19,7 +19,13 @@ export async function POST(req: NextRequest) {
   if ("response" in auth) return auth.response;
   const userId = auth.user.id;
 
-  let body: { recipe_id?: unknown; direction?: unknown };
+  let body: {
+    recipe_id?: unknown;
+    direction?: unknown;
+    shown_rank?: unknown;
+    shown_source?: unknown;
+    candidate_count?: unknown;
+  };
   try {
     body = await req.json();
   } catch {
@@ -27,6 +33,15 @@ export async function POST(req: NextRequest) {
   }
 
   const recipeId = typeof body.recipe_id === "string" ? body.recipe_id : null;
+  // Optional: older clients and the library save button don't send these.
+  const asInt = (v: unknown) =>
+    typeof v === "number" && Number.isFinite(v) ? Math.round(v) : null;
+  const shownRank = asInt(body.shown_rank);
+  const candidateCount = asInt(body.candidate_count);
+  const shownSource =
+    body.shown_source === "ranked" || body.shown_source === "explore"
+      ? body.shown_source
+      : null;
   const direction = DIRECTIONS.includes(body.direction as Direction)
     ? (body.direction as Direction)
     : null;
@@ -43,7 +58,14 @@ export async function POST(req: NextRequest) {
   const { error: swipeError } = await supabase
     .from("swipes")
     .upsert(
-      { user_id: userId, recipe_id: recipeId, direction },
+      {
+        user_id: userId,
+        recipe_id: recipeId,
+        direction,
+        shown_rank: shownRank,
+        shown_source: shownSource,
+        candidate_count: candidateCount,
+      },
       { onConflict: "user_id,recipe_id" }
     );
 

@@ -27,6 +27,10 @@ export type Recipe = {
   created_at: string;
   /** true = in the library (hand-saved). false = crawled corpus. */
   saved: boolean;
+  /** Set only on cards served by /api/discover — the rank it was shown at. */
+  shown_rank?: number | null;
+  shown_source?: "ranked" | "explore" | null;
+  candidate_count?: number | null;
   source_domain: string | null;
   // Enrichment. Present on corpus rows; null on anything not yet enriched.
   cuisine: string | null;

@@ -365,6 +365,33 @@ Prefer fewer, clearer files. This is a personal project, not a platform.
 Phase briefs are pasted into the conversation, not stored in the repo —
 there is no `docs/` directory. This file is the only standing context.
 
+## Production
+
+Live at https://recipe-app-tau-lac.vercel.app — Vercel Hobby, region `yul1`,
+colocated with Supabase `ca-central-1`.
+
+**Measured in production, 10 consecutive cold calls. Do not re-litigate from
+local timings — production is FASTER than the laptop.**
+
+```text
+                  cold(run1)   warm(run9)   local
+prefsAndSwipes         77ms         30ms     ~72ms   colocation works
+candidatesAndTaste   1120ms        306ms    ~520ms
+scoring               266ms        108ms      29ms   ~3.7x serverless penalty
+total                1587ms        573ms    ~850ms
+```
+
+Steady state is ~500-630ms. That is fine for an app opened a few times a week,
+and the deferred optimisations (SQL pre-scoring, candidate cutoff, distribution
+pushdown) were all **declined on purpose**: one scorer you understand beats
+200ms. Do not reopen without a new measurement showing a real problem.
+
+Two wrong readings worth remembering: three cold samples clustering at
+310-324ms looked like a CPU-throttle floor and was not — it was a warming
+curve, and scoring settles at 108ms. And `x-vercel-id` reports the EDGE region
+(the proxy), not the function region, so it says `cle1` while the function
+genuinely runs in `yul1`.
+
 ## Where things stand
 
 > **DO NOT CREATE A SECOND ACCOUNT before step 2 of the auth migration.**

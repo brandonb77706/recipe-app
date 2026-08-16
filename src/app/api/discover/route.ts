@@ -224,7 +224,8 @@ export async function GET(req: NextRequest) {
   const filtered = candidates.filter((row) => passesChips(row, chips));
   mark("facets");
 
-  const scored = scoreCandidates(filtered, prefs, taste);
+  // Notes are only ever read inside the debug block below.
+  const scored = scoreCandidates(filtered, prefs, taste, { notes: debug });
   const feed = buildFeed(
     scored,
     limit,
@@ -257,7 +258,29 @@ export async function GET(req: NextRequest) {
   mark("hydrate");
 
   const byId = new Map((full ?? []).map((r) => [r.id as string, r]));
-  const recipes = feed.map((f) => byId.get(f.id)).filter(Boolean);
+
+  // Counterfactual logging. The client posts these straight back on the swipe,
+  // so we can later ask "what rank was I actually served?" rather than only
+  // "what did I swipe on". This is the signal that made the median-rank-1728
+  // bug findable at all — without it a broken deck and a bad scoring change
+  // look identical.
+  const rankOf = new Map(
+    [...scored]
+      .sort((a, b) => b.total - a.total || (a.id < b.id ? -1 : 1))
+      .map((s, i) => [s.id, i + 1])
+  );
+  const recipes = feed
+    .map((f) => {
+      const row = byId.get(f.id);
+      if (!row) return null;
+      return {
+        ...row,
+        shown_rank: rankOf.get(f.id) ?? null,
+        shown_source: f.exploration ? "explore" : "ranked",
+        candidate_count: filtered.length,
+      };
+    })
+    .filter(Boolean);
   const timing = params.get("timing") === "true"
     ? { ...marks, total: Math.round((performance.now() - t0) * 10) / 10,
         candidates: candidates.length, pagesFetched: loaded.pagesFetched }

@@ -136,7 +136,15 @@ export default function Swipe() {
       fetch("/api/swipe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recipe_id: recipe.id, direction }),
+        body: JSON.stringify({
+          recipe_id: recipe.id,
+          direction,
+          // Echoed straight back from /api/discover so the swipe log records
+          // what the ranker served, not just what was chosen.
+          shown_rank: recipe.shown_rank ?? null,
+          shown_source: recipe.shown_source ?? null,
+          candidate_count: recipe.candidate_count ?? null,
+        }),
       }).catch(() => {
         setError("A swipe didn't save. Check your connection.");
       })
