@@ -25,6 +25,7 @@ export async function POST(req: NextRequest) {
     shown_rank?: unknown;
     shown_source?: unknown;
     candidate_count?: unknown;
+    client_env?: unknown;
   };
   try {
     body = await req.json();
@@ -41,6 +42,10 @@ export async function POST(req: NextRequest) {
   const shownSource =
     body.shown_source === "ranked" || body.shown_source === "explore"
       ? body.shown_source
+      : null;
+  const clientEnv =
+    body.client_env === "development" || body.client_env === "production"
+      ? body.client_env
       : null;
   const direction = DIRECTIONS.includes(body.direction as Direction)
     ? (body.direction as Direction)
@@ -65,6 +70,7 @@ export async function POST(req: NextRequest) {
         shown_rank: shownRank,
         shown_source: shownSource,
         candidate_count: candidateCount,
+        client_env: clientEnv,
       },
       { onConflict: "user_id,recipe_id" }
     );

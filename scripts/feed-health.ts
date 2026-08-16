@@ -1,7 +1,8 @@
 /**
  * Is the deck still serving the ranking?
  *
- *   npx tsx scripts/feed-health.ts
+ *   npx tsx scripts/feed-health.ts                  # production only (default)
+ *   npx tsx scripts/feed-health.ts --env=all        # include localhost swipes
  *   npx tsx scripts/feed-health.ts --since=2026-08-16
  *
  * This exists because of a specific failure. The swipe deck once degenerated
@@ -51,9 +52,17 @@ const db = createClient(
 
 const args = process.argv.slice(2);
 const since = args.find((a) => a.startsWith("--since="))?.split("=")[1];
+/**
+ * Production by default. Dev and production share one database, and a
+ * Strict-Mode-only bug on localhost once poisoned 43 rows — which this script
+ * then averaged in with healthy production data and reported as a live
+ * problem. A false alarm costs the same credibility as a missed one.
+ */
+const env = args.find((a) => a.startsWith("--env="))?.split("=")[1] ?? "production";
 
 type Swipe = {
   direction: "left" | "right";
+  client_env: string | null;
   shown_rank: number | null;
   shown_source: string | null;
   candidate_count: number | null;
@@ -66,7 +75,7 @@ const median = (xs: number[]) =>
 async function main() {
   let q = db
     .from("swipes")
-    .select("direction, shown_rank, shown_source, candidate_count, created_at")
+    .select("direction, shown_rank, shown_source, candidate_count, created_at, client_env")
     .order("created_at", { ascending: false })
     .limit(1000);
   if (since) q = q.gte("created_at", since);
@@ -80,14 +89,28 @@ async function main() {
     return;
   }
 
-  const logged = swipes.filter((s) => s.shown_rank != null);
+  const all = swipes.filter((s) => s.shown_rank != null);
+  const logged =
+    env === "all" ? all : all.filter((s) => s.client_env === env);
+  const excluded = all.length - logged.length;
   console.log(`SWIPES: ${swipes.length}${since ? ` since ${since}` : ""}`);
   console.log(
-    `  with rank logged: ${logged.length}` +
-      (logged.length < swipes.length
-        ? `  (${swipes.length - logged.length} predate the logging columns)`
+    `  with rank logged: ${all.length}` +
+      (all.length < swipes.length
+        ? `  (${swipes.length - all.length} predate the logging columns)`
         : "")
   );
+  if (env !== "all") {
+    console.log(`  environment filter: ${env}  (${logged.length} rows)`);
+    if (excluded > 0) {
+      console.log(
+        `  excluded ${excluded} row(s) from another environment or with no env recorded.\n` +
+          `    Those predate the client_env column or came from localhost. Use --env=all to include them,\n` +
+          `    but do not compare scoring changes across environments — dev runs React Strict Mode\n` +
+          `    and has produced deck bugs production never had.`
+      );
+    }
+  }
 
   if (!logged.length) {
     console.log("\nNothing to analyse — swipe a few cards on a deployed build.");

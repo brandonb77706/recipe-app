@@ -57,12 +57,32 @@ export function Offline() {
 }
 
 /**
+ * How long to wait after the last save before re-walking the library.
+ *
+ * Each walk is three sequential requests per saved recipe — 174 at a library of
+ * 58, and it grows linearly. Firing that on every right swipe meant a rapid
+ * save streak queued several full walks against a browser connection pool of
+ * six, competing with the deck's own refills and swipe writes.
+ *
+ * A few seconds is the right trade: the cache exists for the drive home, not
+ * for the second after a tap, and nothing reads it in between.
+ */
+const PRECACHE_DEBOUNCE_MS = 5000;
+let precacheTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
  * Tells the worker to re-walk the library. Call after anything that changes
  * what's saved, so a recipe you just kept is available on the drive home.
+ *
+ * Debounced: a streak of saves produces one walk, not one per save.
  */
 export function refreshOfflineCache() {
   if (typeof navigator === "undefined") return;
-  navigator.serviceWorker?.ready
-    .then((reg) => reg.active?.postMessage("PRECACHE_LIBRARY"))
-    .catch(() => {});
+  if (precacheTimer) clearTimeout(precacheTimer);
+  precacheTimer = setTimeout(() => {
+    precacheTimer = null;
+    navigator.serviceWorker?.ready
+      .then((reg) => reg.active?.postMessage("PRECACHE_LIBRARY"))
+      .catch(() => {});
+  }, PRECACHE_DEBOUNCE_MS);
 }

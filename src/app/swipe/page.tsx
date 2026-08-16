@@ -26,6 +26,8 @@ export default function Swipe() {
   // Guards a refill from firing on every render while one is already in flight.
   const filling = useRef(false);
   const seen = useRef(new Set<string>());
+  /** Live deck length for callbacks that must not close over a stale value. */
+  const deckRef = useRef<Recipe[]>([]);
 
   /**
    * Swipe writes still in flight.
@@ -49,7 +51,13 @@ export default function Swipe() {
     return p;
   };
 
-  const fetchBatch = useCallback(async (): Promise<Recipe[]> => {
+  /** Records cards as seen. Call only when the batch is actually used. */
+  const accept = useCallback((batch: Recipe[]): Recipe[] => {
+    for (const r of batch) seen.current.add(r.id);
+    return batch;
+  }, []);
+
+  const fetchBatch = useCallback(async (held = 0): Promise<Recipe[]> => {
     // Diagnostics for the delivery bug that has now cost two debugging rounds.
     //
     // The symptom is an explore share far above the designed 20%, which means
@@ -65,14 +73,31 @@ export default function Swipe() {
     if (pending.current.size) {
       await Promise.allSettled([...pending.current]);
     }
-    // No offset: the feed already excludes anything swiped, so page 0 is
-    // always fresh once the writes above have settled.
-    const res = await fetch(`/api/discover?limit=${BATCH}`);
+    // Skip past the cards still in hand.
+    //
+    // A refill fires with REFILL_AT cards left, and those are unswiped — so the
+    // server still ranks them at the top and re-sends them, and the client
+    // drops them as already-seen. Measured: exactly 4 ranked cards discarded
+    // per refill, every time. Not a race; the deck and the server simply
+    // disagree about what "already handled" means.
+    //
+    // The cost was a skew rather than a failure: batches netted 12 ranked + 4
+    // explore instead of 16 + 4, because explore picks are drawn at random and
+    // never re-sent while ranked ones always are. That's 25% exploration
+    // against a designed 20%. Offsetting by what we hold restores full batches.
+    const res = await fetch(
+      `/api/discover?limit=${BATCH}${held > 0 ? `&offset=${held}` : ""}`
+    );
     const body = await res.json();
     if (!res.ok) throw new Error(body?.error ?? `Request failed (${res.status})`);
     const returned: Recipe[] = body.recipes ?? [];
     const fresh: Recipe[] = returned.filter((r) => !seen.current.has(r.id));
-    for (const r of fresh) seen.current.add(r.id);
+    // NOT marked seen here. A fetch whose result gets discarded — a cancelled
+    // mount effect, a remount, Strict Mode's double-invoke — would otherwise
+    // poison the dedupe set with cards that never reached the deck. The next
+    // fetch then drops those same top-ranked cards as "already seen" and keeps
+    // only the fresh exploration picks, and the deck degenerates into pure
+    // exploration from card one. Callers mark cards seen when they accept them.
 
     const count = (rows: Recipe[], source: string) =>
       rows.filter((r) => r.shown_source === source).length;
@@ -104,8 +129,9 @@ export default function Swipe() {
     (async () => {
       try {
         const batch = await fetchBatch();
+        // Bail BEFORE accepting: a cancelled run must leave `seen` untouched.
         if (cancelled) return;
-        setDeck(batch);
+        setDeck(accept(batch));
         setStatus("ready");
       } catch (e) {
         if (cancelled) return;
@@ -116,7 +142,11 @@ export default function Swipe() {
     return () => {
       cancelled = true;
     };
-  }, [fetchBatch]);
+  }, [fetchBatch, accept]);
+
+  useEffect(() => {
+    deckRef.current = deck;
+  }, [deck]);
 
   // Warm the next few images so a card never renders as an empty frame.
   useEffect(() => {
@@ -132,15 +162,17 @@ export default function Swipe() {
     filling.current = true;
     setRefilling(true);
     try {
-      const batch = await fetchBatch();
-      setDeck((d) => [...d, ...batch]);
+      // deckRef, not `deck` — refill is a useCallback and would otherwise
+      // close over a stale length from whenever it was last created.
+      const batch = await fetchBatch(deckRef.current.length);
+      setDeck((d) => [...d, ...accept(batch)]);
     } catch {
       // A failed refill isn't fatal — the deck keeps working on what it has.
     } finally {
       filling.current = false;
       setRefilling(false);
     }
-  }, [fetchBatch]);
+  }, [fetchBatch, accept]);
 
   // Emptiness is derived, not stored. A separate "empty" status would need
   // setting from an effect every time the deck drained, and the two could
@@ -171,6 +203,9 @@ export default function Swipe() {
           shown_rank: recipe.shown_rank ?? null,
           shown_source: recipe.shown_source ?? null,
           candidate_count: recipe.candidate_count ?? null,
+          // Dev and production share one database; without this the two are
+          // indistinguishable in the swipe log.
+          client_env: process.env.NODE_ENV,
         }),
       }).catch(() => {
         setError("A swipe didn't save. Check your connection.");
