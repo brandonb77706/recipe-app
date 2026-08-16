@@ -47,6 +47,7 @@ export function RecipeCard({
       >
         <div className="relative overflow-hidden rounded-[var(--radius-card)] bg-surface">
           <RecipeImage
+            optimise={false}
             src={recipe.image_url}
             title={recipe.title}
             generated={recipe.extraction_method === "llm_generated"}
@@ -83,6 +84,7 @@ export function RecipeCard({
     >
       <div className="relative">
         <RecipeImage
+          optimise={false}
           src={recipe.image_url}
           title={recipe.title}
           generated={recipe.extraction_method === "llm_generated"}

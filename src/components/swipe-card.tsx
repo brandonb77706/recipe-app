@@ -98,6 +98,7 @@ export function SwipeCard({
       }`}
     >
       <RecipeImage
+        optimise={false}
         src={recipe.image_url}
         title={recipe.title}
         generated={recipe.extraction_method === "llm_generated"}

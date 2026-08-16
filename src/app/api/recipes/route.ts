@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { requireUser } from "@/lib/auth";
 import { RECIPE_COLUMNS } from "@/lib/types";
 import {
   COOKED_FILTERS,
@@ -21,6 +22,13 @@ import {
  * everywhere else: a React Native client should get this for free.
  */
 export async function GET(req: NextRequest) {
+  // This is the route that served another account the whole library during
+  // the two-user probe. It filters `saved = true` with no user scope, which
+  // step 2 fixes properly; until then the guard at least means you must be
+  // signed in as SOMEONE to see it.
+  const auth = await requireUser();
+  if ("response" in auth) return auth.response;
+
   const params = req.nextUrl.searchParams;
 
   const asOption = <T extends string>(

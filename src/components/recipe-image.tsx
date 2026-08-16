@@ -31,6 +31,7 @@ export function RecipeImage({
   className = "",
   imgClassName = "",
   eager = false,
+  optimise = true,
   sizes = "(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw",
 }: {
   src: string | null;
@@ -41,6 +42,8 @@ export function RecipeImage({
   className?: string;
   imgClassName?: string;
   eager?: boolean;
+  /** False for grid and deck cards — see the comment on the render path. */
+  optimise?: boolean;
   /** Tell the browser the rendered width, or it downloads a full-width file. */
   sizes?: string;
 }) {
@@ -78,7 +81,7 @@ export function RecipeImage({
       className={`recipe-image-frame relative overflow-hidden bg-accent-soft ${className}`}
     >
       {showImage ? (
-        isOptimisableHost(src) ? (
+        optimise && isOptimisableHost(src) ? (
           <Image
             src={src}
             alt=""
@@ -89,10 +92,19 @@ export function RecipeImage({
             className={`object-cover ${imgClassName}`}
           />
         ) : (
-          /* Hand-imported recipes come from arbitrary blogs, so their host is
-             usually not in the allowlist. next/image THROWS on an unconfigured
-             host rather than degrading, which would take the whole page down
-             for one photo — so serve it unoptimised instead. */
+          /* Two reasons to land here.
+             1. Unconfigured host: hand-imported recipes come from arbitrary
+                blogs, and next/image THROWS on an unknown host rather than
+                degrading — one photo would take the whole page down.
+             2. optimise={false}: grid tiles and swipe cards.
+
+             On (2) the meter is the reason. Vercel Hobby allows 5,000 image
+             transformations a month, counted per unique source + size. With
+             17,525 distinct photos and a 24-tile grid, roughly 200 screens of
+             fresh recipes would exhaust the month — a week of normal use.
+             next/image stays on the detail hero, where there is one image per
+             page view and the quality is worth a transformation. The source
+             blogs already serve sensibly-sized photos. */
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={src}

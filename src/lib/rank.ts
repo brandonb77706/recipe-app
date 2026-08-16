@@ -174,7 +174,7 @@ const CONTINUOUS_CONCEPTS: readonly string[] = ["high_protein", "low_calorie"];
 /** The columns scoring needs. Deliberately excludes ingredients/steps/payload
  *  so the candidate sweep can pull thousands of rows cheaply. */
 export const RANK_COLUMNS =
-  "id, total_minutes, cuisine, meal_types, diet_tags, concept_tags, effort, protein_grams, calories, protein_source, main_protein, protein_traces, source_domain, saved";
+  "id, total_minutes, cuisine, meal_types, diet_tags, concept_tags, effort, protein_grams, calories, protein_source, main_protein, source_domain";
 
 export type RankRow = {
   id: string;
@@ -186,7 +186,20 @@ export type RankRow = {
   effort: string | null;
   protein_grams: number | null;
   calories: number | null;
-  protein_source: string | null;
+  /*
+   * protein_source is deliberately ABSENT from this type.
+   *
+   * It was dropped from RANK_COLUMNS to cut egress, so it is never fetched.
+   * Declaring it — even as `?: never` — does not help: `never` is the bottom
+   * type, so TypeScript happily compares it to a string and the read silently
+   * yields undefined. Verified, not assumed. Leaving the property out entirely
+   * is what makes `row.protein_source` a compile error (TS2339).
+   *
+   * If a trustworthy estimate source ever appears: add the column back to
+   * RANK_COLUMNS, add the field here, and reinstate the discount in
+   * proteinComponent — all three in the same commit. The runtime assert there
+   * exists to catch anyone who does one and forgets the others.
+   */
   main_protein: string | null;
   /** Every protein appearing anywhere in the ingredients. Strict use only. */
   protein_traces: string[] | null;
@@ -515,8 +528,22 @@ function proteinComponent(
     return inactive("protein", "not requested — no protein preference set");
 
   if (row.protein_grams != null) {
+    // Loud, not silent. protein_source is no longer fetched, so the discount
+    // below cannot fire. If a row ever carries 'estimated' again, the ranking
+    // would quietly score an inferred number as if it were measured — the
+    // exact class of bug that gets found six months later as "the ranking
+    // feels slightly off". Throwing here forces the two to be fixed together.
+    const source = (row as { protein_source?: string }).protein_source;
+    if (source === "estimated") {
+      throw new Error(
+        "rank.ts: protein_source='estimated' found, but ESTIMATED_DISCOUNT is " +
+          "unreachable because protein_source was dropped from RANK_COLUMNS. " +
+          "Restore the column AND reinstate the discount in proteinComponent."
+      );
+    }
+
     const p = percentile(row.protein_grams, dist);
-    const estimated = row.protein_source === "estimated";
+    const estimated = false;
     const raw = estimated ? p * ESTIMATED_DISCOUNT : p;
     const points = round(raw * WEIGHTS.PROTEIN);
     return {

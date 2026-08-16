@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# crawler decision logs — rewritten each run, sometimes large
+scripts/seed-*.log
+
+# playwright-mcp screenshots and traces
+.playwright-mcp/
