@@ -12,9 +12,20 @@
  * expectation of 1,745. Nothing errored. The only symptom was "the food looks
  * wrong", and it took a rank reconstruction to find.
  *
- * The check that matters is MEDIAN SHOWN RANK. If it drifts toward the middle
- * of the candidate pool, the ranking has stopped reaching the screen — whether
- * from a scoring regression or a broken deck. Read it after any scoring change.
+ * TWO checks matter, and they must stay separate:
+ *
+ *   EXPLORE SHARE — should sit near 20%. If it climbs, ranked cards are being
+ *   dropped client-side as already-seen and exploration is filling the gap.
+ *
+ *   MEDIAN RANK OF RANKED CARDS — should be near the top of the pool.
+ *
+ * The first version of this script computed one median across BOTH kinds and
+ * called a 59%-exploration session "healthy". Exploration draws uniformly from
+ * the whole tail, so a deck serving nothing but exploration still yields a
+ * middling median — the number looked fine while the deck was broken. A check
+ * that stays quiet during a real regression is worse than one that cries wolf.
+ *
+ * Exits non-zero when a check fails. Read it after any scoring change.
  */
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -84,18 +95,51 @@ async function main() {
   }
 
   // --- the headline ---------------------------------------------------------
-  const ranks = logged.map((s) => s.shown_rank!);
+  //
+  // Two separate checks, because the first version of this script conflated
+  // them and reported "healthy" on a session that was 59% exploration.
+  // Exploration picks are drawn uniformly from the whole tail, so a deck
+  // serving nothing BUT exploration still produces a middling median. The
+  // median only means something over the RANKED cards.
   const pool = median(logged.map((s) => s.candidate_count ?? 0));
-  const med = median(ranks);
-  console.log(`\nMEDIAN SHOWN RANK: ${med} of ~${pool} candidates`);
-  if (Number.isFinite(pool) && pool > 0) {
-    const ratio = med / pool;
+  const rankedCards = logged.filter((s) => s.shown_source === "ranked");
+  const exploreShare =
+    logged.filter((s) => s.shown_source === "explore").length / logged.length;
+
+  let problems = 0;
+
+  console.log(`\nEXPLORE SHARE: ${Math.round(exploreShare * 100)}% (expected ~20%)`);
+  if (exploreShare > 0.32) {
+    problems++;
     console.log(
-      ratio > 0.25
-        ? `  ⚠ that is ${Math.round(ratio * 100)}% down the pool — the ranking may not be reaching the deck.\n` +
-            `    Random sampling would sit near 50%. Investigate before trusting any scoring change.`
-        : `  healthy — ${Math.round(ratio * 100)}% down the pool (random sampling would be ~50%)`
+      `  ⚠ TOO HIGH. The deck is serving exploration picks in place of ranked\n` +
+        `    ones — the signature of ranked cards being dropped client-side as\n` +
+        `    already-seen. This is what the 1,728-median bug looked like.`
     );
+  } else if (exploreShare < 0.08) {
+    problems++;
+    console.log(`  ⚠ TOO LOW. Exploration has effectively stopped; the feed can't learn.`);
+  } else {
+    console.log(`  as designed`);
+  }
+
+  if (rankedCards.length) {
+    const med = median(rankedCards.map((s) => s.shown_rank!));
+    console.log(
+      `\nMEDIAN RANK OF *RANKED* CARDS: ${med} of ~${pool}  (${rankedCards.length} cards)`
+    );
+    if (Number.isFinite(pool) && pool > 0 && med / pool > 0.1) {
+      problems++;
+      console.log(
+        `  ⚠ ${Math.round((med / pool) * 100)}% down the pool. Ranked cards should\n` +
+          `    cluster near the top — anything else means the ranking isn't reaching you.`
+      );
+    } else {
+      console.log(`  healthy — ranked cards are coming from the top of the ranking`);
+    }
+  } else {
+    problems++;
+    console.log(`\n⚠ NOT ONE RANKED CARD SERVED. The deck is pure exploration.`);
   }
 
   // --- save rate by rank bucket --------------------------------------------
@@ -132,14 +176,12 @@ async function main() {
         `${saves} saved (${Math.round((saves / inS.length) * 100)}%)`
     );
   }
-  const explorePct =
-    logged.filter((s) => s.shown_source === "explore").length / logged.length;
   console.log(
-    `\n  Expected explore share is ~20% (every 5th card). ` +
-      (Math.abs(explorePct - 0.2) > 0.12
-        ? `Measured ${Math.round(explorePct * 100)}% — off enough to look at.`
-        : `Measured ${Math.round(explorePct * 100)}% — as designed.`)
+    problems
+      ? `\n${problems} PROBLEM(S) ABOVE — do not trust a scoring comparison against this data.`
+      : `\nAll checks passed.`
   );
+  if (problems) process.exitCode = 1;
 }
 
 main().catch((e) => {
