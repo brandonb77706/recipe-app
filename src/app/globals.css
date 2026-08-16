@@ -1,26 +1,121 @@
 @import "tailwindcss";
 
+/* Warm paper palette. One accent (terracotta) carries every interactive
+   element — nothing else is allowed to be colorful. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --paper: #faf6f0;
+  --surface: #ffffff;
+  --ink: #211d19;
+  --muted: #7c7066;
+  --line: #e9e0d4;
+  --accent: #b4482b;
+  --accent-soft: #f7ebe5;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --paper: #14110e;
+    --surface: #1d1915;
+    --ink: #f2ece4;
+    --muted: #a5988c;
+    --line: #2f2822;
+    --accent: #e2764f;
+    --accent-soft: #2a1e18;
   }
 }
 
+@theme inline {
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-fraunces), ui-serif, Georgia, serif;
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  /* Zero in portrait; keeps content clear of the rounded corners in landscape.
+     Vertical insets are applied per-surface so the detail hero can stay
+     full-bleed under the status bar. */
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* Kitchen use: taps shouldn't leave a grey flash or select text. */
+a,
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Lets the no-photo card scale its glyph to the tile it sits in. */
+.recipe-image-frame {
+  container-type: inline-size;
+}
+
+/* WebKit draws its own clear button inside type="search", which sat on top of
+   ours — two X's, and the native one ignored the debounce timer. type="search"
+   stays because it's what gives iOS the search keyboard. */
+input[type="search"]::-webkit-search-cancel-button,
+input[type="search"]::-webkit-search-decoration,
+input[type="search"]::-webkit-search-results-button,
+input[type="search"]::-webkit-search-results-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* ---------------------------------------------------------------------------
+   Design tokens. One 8px scale, one radius scale, one numeral treatment.
+   Spacing was previously chosen per component (mb-9 here, mt-11 there), so
+   nothing aligned across screens. Everything below is a multiple of 4.
+   --------------------------------------------------------------------------- */
+:root {
+  --space-1: 0.25rem;  /*  4 */
+  --space-2: 0.5rem;   /*  8 */
+  --space-3: 0.75rem;  /* 12 */
+  --space-4: 1rem;     /* 16 */
+  --space-6: 1.5rem;   /* 24 */
+  --space-8: 2rem;     /* 32 */
+  --space-12: 3rem;    /* 48 */
+
+  /* Radii carry meaning instead of being uniformly rounded: photos and sheets
+     are soft, controls are tighter, the cook-mode target is nearly square. */
+  --radius-card: 14px;
+  --radius-control: 10px;
+  --radius-pill: 999px;
+
+  /* Height of the fixed bottom nav, so pages can reserve space for it. */
+  --nav-h: 3.75rem;
+}
+
+/* Old-style figures in running text — numerals sit on the baseline with
+   ascenders and descenders, so "35 min" reads as words rather than data. */
+.figures-text {
+  font-variant-numeric: oldstyle-nums;
+}
+
+/* Tabular figures wherever numbers are compared: servings steppers, macro
+   columns, step counters. Equal widths stop digits jittering as they change. */
+.figures-tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* Scrim for text sitting on a photo. Steeper than a linear gradient so the
+   image stays visible above it while the text stays legible. */
+.photo-scrim {
+  background: linear-gradient(
+    to top,
+    rgb(0 0 0 / 0.78) 0%,
+    rgb(0 0 0 / 0.45) 38%,
+    rgb(0 0 0 / 0) 72%
+  );
 }
