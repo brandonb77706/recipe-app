@@ -50,6 +50,17 @@ export default function Swipe() {
   };
 
   const fetchBatch = useCallback(async (): Promise<Recipe[]> => {
+    // Diagnostics for the delivery bug that has now cost two debugging rounds.
+    //
+    // The symptom is an explore share far above the designed 20%, which means
+    // ranked cards are being dropped client-side as already-seen and
+    // exploration is filling the gap. The ranking itself is fine — when a
+    // ranked card is served it comes from median rank 9 — so the fault is in
+    // delivery, and this is the one place delivery can be observed.
+    //
+    // Console only, no persistence: it's a debugging aid, not a schema.
+    const inFlightWrites = pending.current.size;
+
     // Let every swipe land before asking what to show next.
     if (pending.current.size) {
       await Promise.allSettled([...pending.current]);
@@ -59,10 +70,26 @@ export default function Swipe() {
     const res = await fetch(`/api/discover?limit=${BATCH}`);
     const body = await res.json();
     if (!res.ok) throw new Error(body?.error ?? `Request failed (${res.status})`);
-    const fresh: Recipe[] = (body.recipes ?? []).filter(
-      (r: Recipe) => !seen.current.has(r.id)
-    );
+    const returned: Recipe[] = body.recipes ?? [];
+    const fresh: Recipe[] = returned.filter((r) => !seen.current.has(r.id));
     for (const r of fresh) seen.current.add(r.id);
+
+    const count = (rows: Recipe[], source: string) =>
+      rows.filter((r) => r.shown_source === source).length;
+    const dropped = returned.length - fresh.length;
+
+    console.log(
+      `[deck] batch: ${returned.length} returned -> ${fresh.length} kept ` +
+        `(${dropped} dropped as seen)` +
+        `  |  returned ranked/explore ${count(returned, "ranked")}/${count(returned, "explore")}` +
+        `  kept ${count(fresh, "ranked")}/${count(fresh, "explore")}` +
+        `  |  writes in flight at start: ${inFlightWrites}` +
+        `  |  seen set: ${seen.current.size}` +
+        (count(fresh, "ranked") === 0 && fresh.length > 0
+          ? "   *** NO RANKED CARDS SURVIVED — this is the bug ***"
+          : ""),
+    );
+
     return fresh;
   }, []);
 
