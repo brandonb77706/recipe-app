@@ -343,6 +343,12 @@ Building these is a regression, not an improvement:
 
 ## Working style
 
+**Commits are authored by me alone.** No `Co-Authored-By` trailer, no
+"Generated with" line, no AI attribution anywhere in the message, author, or
+committer fields. This is not a style preference — it's how the history reads
+to anyone who looks at it later.
+
+
 I want to understand the why before the how. Explain tradeoffs, then
 implement — don't just produce code.
 
