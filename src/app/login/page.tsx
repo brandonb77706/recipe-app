@@ -2,7 +2,6 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { createBrowserClient } from "@supabase/ssr";
 
 /**
  * Sign-in only — there is no sign-up form on purpose. Signups are disabled in
@@ -25,19 +24,18 @@ function LoginForm() {
     setBusy(true);
     setError(null);
 
-    const supabase = createBrowserClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    );
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
+    // Signed in server-side so the session cookie can be httpOnly. A cookie
+    // the browser can write is a cookie the browser can read, and that one
+    // holds the long-lived refresh token.
+    const res = await fetch("/api/auth/sign-in", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: email.trim(), password }),
+    }).catch(() => null);
 
-    if (signInError) {
-      // Deliberately not distinguishing "no such account" from "wrong
-      // password" — that difference tells an attacker which emails exist.
-      setError("That email and password didn't match.");
+    if (!res || !res.ok) {
+      const body = await res?.json().catch(() => null);
+      setError(body?.error ?? "Couldn't reach the server. Check your connection.");
       setBusy(false);
       return;
     }

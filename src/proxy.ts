@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { verifyAccessToken } from "@/lib/verify-jwt";
+import { sessionCookieOptions } from "@/lib/cookie-options";
 
 /**
  * Next 16 renamed the `middleware` file convention to `proxy`. Same execution
@@ -38,7 +39,7 @@ export async function proxy(request: NextRequest) {
           }
           response = NextResponse.next({ request });
           for (const { name, value, options } of toSet) {
-            response.cookies.set(name, value, options);
+            response.cookies.set(name, value, sessionCookieOptions(options));
           }
         },
       },
@@ -79,7 +80,13 @@ export async function proxy(request: NextRequest) {
   }
 
   const { pathname } = request.nextUrl;
-  const isAuthRoute = pathname.startsWith("/login") || pathname.startsWith("/auth");
+  // /api/auth/* must be reachable WITHOUT a session — it's how you get one.
+  // Missing this 401s the sign-in request itself and login stops working
+  // entirely, with no error that points at the cause.
+  const isAuthRoute =
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/auth") ||
+    pathname.startsWith("/api/auth");
 
   if (!user && !isAuthRoute) {
     // API routes get a 401 they can handle; pages get sent to the login form.

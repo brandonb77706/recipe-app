@@ -3,6 +3,7 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { verifyAccessToken } from "./verify-jwt";
+import { sessionCookieOptions } from "./cookie-options";
 
 /**
  * Session-scoped Supabase access.
@@ -36,7 +37,7 @@ export async function supabaseServer() {
         setAll(toSet) {
           try {
             for (const { name, value, options } of toSet) {
-              cookieStore.set(name, value, options);
+              cookieStore.set(name, value, sessionCookieOptions(options));
             }
           } catch {
             // Called from a Server Component, where cookies are read-only.
