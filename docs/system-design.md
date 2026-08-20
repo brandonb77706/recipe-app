@@ -257,10 +257,12 @@ is fine for this usage pattern.
    preference-set. One serial hop removed from the critical path.
 2. **Trim `RANK_COLUMNS` further** (~19% egress). `diet_tags` is only needed for
    the `high_protein` fallback on 28% of rows.
-3. **Client-side candidate reuse.** The deck refetches all 9,900 candidates on
-   every refill. Requesting `offset` deeper into the *same* ranking instead
-   would cut wave 2 entirely for refills 2..N of a session — biggest available
-   win, ~300ms per refill.
+3. **Fewer sweeps per session.** The deck refetches all 9,900 candidates on
+   every refill, and **`offset` does not help** — `buildFeed` slices *after*
+   scoring (rank.ts:795), so the server sweeps and scores the full set no matter
+   which page you ask for. The fix is to reduce the NUMBER of sweeps (bigger
+   batch) or to stop sweeping on refills (prefetched id list + a hydrate-only
+   endpoint). See docs/optimizations.md.
 4. **Cut allocation in scoring.** 69,300 component objects to keep 140. Notes
    are already skipped outside `?debug=true` (31ms → 19ms local, 38%).
 
