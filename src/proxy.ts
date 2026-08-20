@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { verifyAccessToken } from "@/lib/verify-jwt";
 
 /**
  * Next 16 renamed the `middleware` file convention to `proxy`. Same execution
@@ -44,12 +45,38 @@ export async function proxy(request: NextRequest) {
     }
   );
 
-  // getUser() revalidates against the auth server and refreshes the token as a
-  // side effect. Do not replace with getSession() — that only decodes the
-  // cookie, which the client controls.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  /**
+   * Two jobs, and they need separating.
+   *
+   * getUser() both VALIDATES the token and REFRESHES it as a side effect.
+   * Validation can be done locally against the published JWKS for nothing;
+   * refreshing genuinely needs the network. Doing both on every request cost a
+   * round trip per request for a refresh that is only due once an hour.
+   *
+   * So: verify locally, and only reach for the network when the token is
+   * actually close to expiring — or when local verification can't vouch for it,
+   * in which case we fall back rather than guess.
+   */
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData.session?.access_token;
+  const verified = await verifyAccessToken(token);
+
+  const REFRESH_WINDOW_S = 5 * 60;
+  const needsRefresh =
+    !verified || verified.expiresAt - Date.now() / 1000 < REFRESH_WINDOW_S;
+
+  let user: { id: string } | null = verified
+    ? { id: verified.id }
+    : null;
+
+  if (needsRefresh && token) {
+    // Network path: revalidates AND rotates the token, writing new cookies
+    // through the setAll handler above.
+    const { data } = await supabase.auth.getUser();
+    user = data.user ? { id: data.user.id } : null;
+  } else if (!token) {
+    user = null;
+  }
 
   const { pathname } = request.nextUrl;
   const isAuthRoute = pathname.startsWith("/login") || pathname.startsWith("/auth");

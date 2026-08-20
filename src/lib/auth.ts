@@ -2,6 +2,7 @@ import "server-only";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { verifyAccessToken } from "./verify-jwt";
 
 /**
  * Session-scoped Supabase access.
@@ -50,13 +51,35 @@ export async function supabaseServer() {
 
 export type SessionUser = { id: string; email: string | null };
 
-/** The signed-in user, or null. Never throws — callers decide what a missing
- *  session means. */
+/**
+ * The signed-in user, or null. Never throws — callers decide what a missing
+ * session means.
+ *
+ * Fast path: read the access token out of the cookie (no network) and verify
+ * its signature against Supabase's published JWKS (no network once cached).
+ * That is cryptographically equivalent to asking the auth server, because only
+ * the auth server holds the private key.
+ *
+ * Slow path: if local verification can't prove the token — unknown algorithm,
+ * JWKS unreachable, a project still on legacy HS256 — fall back to
+ * getUser() over the network. Correct always; fast in the normal case.
+ *
+ * getSession() alone would NOT be safe. It only decodes a cookie the client
+ * controls. It is safe HERE only because every token it produces is then
+ * signature-checked before being believed.
+ */
 export async function getUser(): Promise<SessionUser | null> {
   const db = await supabaseServer();
-  // getUser() revalidates against the auth server. getSession() only decodes
-  // the cookie, which a client could forge, so it must not be used for
-  // authorization decisions.
+
+  const { data: sessionData } = await db.auth.getSession();
+  const token = sessionData.session?.access_token;
+
+  const verified = await verifyAccessToken(token);
+  if (verified) return verified;
+
+  // No token at all means signed out — don't spend a round trip proving it.
+  if (!token) return null;
+
   const { data, error } = await db.auth.getUser();
   if (error || !data.user) return null;
   return { id: data.user.id, email: data.user.email ?? null };
