@@ -16,6 +16,11 @@ import { NextResponse, type NextRequest } from "next/server";
  *      drive imports that spend Anthropic credits.
  */
 export async function proxy(request: NextRequest) {
+  // Every ?timing=true number we have ever collected measures only the route
+  // handler. The proxy runs BEFORE it and calls getUser(), which is a network
+  // round trip to Supabase on every request — so the real user-facing latency
+  // has always been proxy + application, and we were reporting half of it.
+  const proxyStart = Date.now();
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -68,6 +73,8 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  // Hand the cost downstream so /api/discover?timing=true can report it.
+  response.headers.set("x-proxy-ms", String(Date.now() - proxyStart));
   return response;
 }
 

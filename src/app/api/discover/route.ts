@@ -117,13 +117,15 @@ async function loadCandidates(
  *   ?seed=123     seed the exploration RNG so the feed is reproducible
  */
 export async function GET(req: NextRequest) {
-  const auth = await requireUser();
-  if ("response" in auth) return auth.response;
-  const userId = auth.user.id;
-
   // Phase timings, always collected (they cost a Date.now per stage) and
   // returned only under ?timing=true. Guessing at which stage is slow is how
   // you end up optimising three things and learning nothing.
+  //
+  // t0 starts BEFORE requireUser(). It used to start after, which hid a whole
+  // network round trip: requireUser() calls supabase.auth.getUser(), and the
+  // proxy has already made the same call for the same request. Two auth round
+  // trips per request, neither of them measured — 438ms of a 2.1s dev request
+  // was unaccounted for until this moved.
   const t0 = performance.now();
   const marks: Record<string, number> = {};
   let last = t0;
@@ -132,6 +134,11 @@ export async function GET(req: NextRequest) {
     marks[name] = Math.round((now - last) * 10) / 10;
     last = now;
   };
+
+  const auth = await requireUser();
+  if ("response" in auth) return auth.response;
+  const userId = auth.user.id;
+  mark("auth");
 
   const params = req.nextUrl.searchParams;
   const limit = Math.min(
@@ -282,7 +289,9 @@ export async function GET(req: NextRequest) {
     })
     .filter(Boolean);
   const timing = params.get("timing") === "true"
-    ? { ...marks, total: Math.round((performance.now() - t0) * 10) / 10,
+    ? { ...marks,
+        proxyMs: Number(req.headers.get("x-proxy-ms")) || null,
+        total: Math.round((performance.now() - t0) * 10) / 10,
         candidates: candidates.length, pagesFetched: loaded.pagesFetched }
     : undefined;
 
