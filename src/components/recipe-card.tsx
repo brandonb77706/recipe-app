@@ -67,12 +67,23 @@ export function RecipeCard({
             <LibraryActions recipe={recipe} onRemoved={onRemoved} dense />
           )}
         </div>
-        <h2 className="mt-2 line-clamp-2 font-display text-[15px] leading-[1.25] font-semibold text-balance">
-          {recipe.title}
-        </h2>
-        {time && (
-          <p className="figures-text mt-0.5 text-[13px] text-muted">{time}</p>
-        )}
+        {/* Fixed height, not intrinsic. line-clamp-2 CAPS at two lines but
+            doesn't RESERVE them, so a one-line title made a tile 19px shorter
+            than a two-line one — rows never aligned, and no fixed-size skeleton
+            could match a variable card. 60px = two lines at 15px/1.25 (38) +
+            mt-0.5 (2) + one 13px line (20).
+
+            Reserving the space is not the same as rendering placeholder text:
+            a recipe with no time still shows nothing, it just doesn't drag the
+            tile up. */}
+        <div className="mt-2 h-[60px]">
+          <h2 className="line-clamp-2 font-display text-[15px] leading-[1.25] font-semibold text-balance">
+            {recipe.title}
+          </h2>
+          {time && (
+            <p className="figures-text mt-0.5 text-[13px] text-muted">{time}</p>
+          )}
+        </div>
       </Link>
     );
   }

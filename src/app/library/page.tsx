@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { Recipe } from "@/lib/types";
 import { RecipeCard } from "@/components/recipe-card";
 import { SearchBar } from "@/components/search-bar";
+import { SkeletonGrid } from "@/components/skeletons";
 import { LibraryControls } from "@/components/library-controls";
 import { EMPTY_QUERY, type LibraryQuery } from "@/lib/library";
 
@@ -120,12 +121,17 @@ export default function Home() {
           </button>
         </div>
 
-        {!searchMode && status === "ready" && (
+        {/* Rendered during loading too. Gating this on status === "ready"
+            meant the grid started 60-80px too high and everything jumped down
+            when data landed — the sort/filter row doesn't depend on the fetch
+            for its shape, only for its counts. */}
+        {!searchMode && status !== "error" && (
           <LibraryControls
             query={libQuery}
             onChange={setLibQuery}
             total={total ?? recipes.length}
             showing={recipes.length}
+            loading={status === "loading"}
           />
         )}
       </header>
@@ -284,24 +290,3 @@ function Notice({ title, body }: { title: string; body: string }) {
   );
 }
 
-function SkeletonGrid() {
-  return (
-    <ul
-      className="grid grid-cols-2 gap-x-3 gap-y-5 sm:grid-cols-3 lg:grid-cols-4"
-      aria-label="Loading recipes"
-    >
-      {Array.from({ length: 6 }).map((_, i) => (
-        <li
-          key={i}
-          className="overflow-hidden rounded-2xl bg-surface ring-1 ring-line"
-        >
-          <div className="aspect-[16/10] animate-pulse bg-line/60" />
-          <div className="space-y-2.5 px-5 py-5">
-            <div className="h-4 w-4/5 animate-pulse rounded bg-line/60" />
-            <div className="h-4 w-1/3 animate-pulse rounded bg-line/60" />
-          </div>
-        </li>
-      ))}
-    </ul>
-  );
-}

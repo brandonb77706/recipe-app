@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import type { Recipe } from "@/lib/types";
 import { RecipeCard } from "@/components/recipe-card";
 import { SearchBar } from "@/components/search-bar";
+import { SkeletonGrid } from "@/components/skeletons";
 import { isOnboarded, type Preferences } from "@/lib/preferences";
 import { DiscoverFilters } from "@/components/discover-filters";
 import { NO_CHIPS, chipsToParams, type ChipFilters, type Facets } from "@/lib/filters";
@@ -217,7 +218,7 @@ export default function Discover() {
         )}
       </header>
 
-      {(status === "checking" || status === "loading") && <SkeletonGrid />}
+      {(status === "checking" || status === "loading") && <SkeletonGrid count={24} />}
 
       {status === "error" && (
         <Notice title="Couldn’t load Discover" body={error ?? "Unknown error"} />
@@ -225,7 +226,7 @@ export default function Discover() {
 
       {status === "ready" && searchMode ? (
         results === null || (searching && results.length === 0) ? (
-          <SkeletonGrid />
+          <SkeletonGrid count={24} />
         ) : results.length === 0 ? (
           <Notice
             title="No matches"
@@ -298,24 +299,3 @@ function Notice({ title, body }: { title: string; body: string }) {
   );
 }
 
-function SkeletonGrid() {
-  return (
-    <ul
-      className="grid grid-cols-2 gap-x-3 gap-y-5 sm:grid-cols-3 lg:grid-cols-4"
-      aria-label="Loading recipes"
-    >
-      {Array.from({ length: 6 }).map((_, i) => (
-        <li
-          key={i}
-          className="overflow-hidden rounded-2xl bg-surface ring-1 ring-line"
-        >
-          <div className="aspect-[16/10] animate-pulse bg-line/60" />
-          <div className="space-y-2.5 px-5 py-5">
-            <div className="h-4 w-4/5 animate-pulse rounded bg-line/60" />
-            <div className="h-4 w-1/3 animate-pulse rounded bg-line/60" />
-          </div>
-        </li>
-      ))}
-    </ul>
-  );
-}

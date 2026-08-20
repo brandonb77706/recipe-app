@@ -4,12 +4,28 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { Recipe } from "@/lib/types";
 import { SwipeCard, type SwipeDirection } from "@/components/swipe-card";
+import { SkeletonSwipeCard } from "@/components/skeletons";
 import { refreshOfflineCache } from "@/components/offline";
 
-/** Cards fetched per request. */
-const BATCH = 20;
-/** Refill once the deck gets this thin, so it never runs dry mid-session. */
-const REFILL_AT = 6;
+/**
+ * Cards fetched per request.
+ *
+ * 50, not 20, because the server cost is per REQUEST, not per card: every
+ * /api/discover call sweeps and scores the whole ~9,900-row candidate pool
+ * regardless of how many cards it returns. Asking for 50 makes a 60-card
+ * session ~2 sweeps instead of ~4 — roughly 840ms and 6 MB of egress saved.
+ *
+ * MAX_LIMIT on the route is 50, so this is the ceiling without a server change.
+ * Exploration is unaffected: still every 5th card.
+ *
+ * The trade: quitting a session early means more cards were fetched than
+ * swiped. Wasted egress on abandoned sessions, accepted knowingly.
+ */
+const BATCH = 50;
+/** Refill once the deck gets this thin, so it never runs dry mid-session.
+ *  Scaled with BATCH: a refill costs a round trip, so start it with enough
+ *  cards in hand to cover the latency at any reasonable swipe pace. */
+const REFILL_AT = 10;
 /** How many cards are actually mounted. Everything below is invisible anyway. */
 const VISIBLE = 3;
 
@@ -240,7 +256,7 @@ export default function Swipe() {
   const top = deck[0];
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col px-5 pt-[calc(1.5rem+env(safe-area-inset-top))] pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
+    <div className="mx-auto flex min-h-dvh w-full max-w-md flex-col px-5 pt-[calc(1.5rem+env(safe-area-inset-top))] pb-[calc(var(--nav-h)+1rem+env(safe-area-inset-bottom))]">
       <header className="mb-5 flex items-center justify-between">
         <Link
           href="/"
@@ -256,9 +272,10 @@ export default function Swipe() {
       </header>
 
       <div className="relative min-h-0 flex-1">
-        {status === "loading" && (
-          <div className="absolute inset-0 animate-pulse rounded-3xl bg-line/50" />
-        )}
+        {/* A card-shaped placeholder, not a grey box. The deck's frame and
+            its controls are on screen immediately and only the photo and title
+            fill in — previously the entire interface waited on the fetch. */}
+        {status === "loading" && <SkeletonSwipeCard />}
 
         {status === "error" && (
           <Message

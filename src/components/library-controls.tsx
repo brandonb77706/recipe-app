@@ -19,11 +19,15 @@ export function LibraryControls({
   onChange,
   total,
   showing,
+  loading = false,
 }: {
   query: LibraryQuery;
   onChange: (next: LibraryQuery) => void;
   total: number;
   showing: number;
+  /** Renders the same layout with the counts withheld, so the row occupies
+   *  its space from first paint instead of appearing when data lands. */
+  loading?: boolean;
 }) {
   const filtered = query.cooked !== null || query.mealType !== null;
 
@@ -96,7 +100,7 @@ export function LibraryControls({
 
       {filtered && (
         <p className="figures-text mt-2 text-sm text-muted">
-          {showing} of {total}
+          {loading ? "\u00a0" : `${showing} of ${total}`}
           <button
             type="button"
             onClick={() => onChange({ ...query, cooked: null, mealType: null })}
