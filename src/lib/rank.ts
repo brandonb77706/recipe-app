@@ -174,7 +174,14 @@ const CONTINUOUS_CONCEPTS: readonly string[] = ["high_protein", "low_calorie"];
 /** The columns scoring needs. Deliberately excludes ingredients/steps/payload
  *  so the candidate sweep can pull thousands of rows cheaply. */
 export const RANK_COLUMNS =
-  "id, total_minutes, cuisine, meal_types, diet_tags, concept_tags, effort, protein_grams, calories, protein_source, main_protein, source_domain";
+  "id, total_minutes, cuisine, meal_types, diet_tags, concept_tags, effort, protein_grams, calories, protein_source, main_protein, source_domain, saved";
+// `saved` is selected deliberately even though every caller also filters on it
+// in SQL. passesHardFilters checks row.saved, and without the column that check
+// silently evaluates `undefined` and passes everything — a no-op guard on the
+// most fragile invariant in the app. One boolean per row is worth a real check,
+// and the in-memory corpus makes it load-bearing: rows are filtered once at
+// load and then reused, so the guard is the only thing standing between a
+// library row and the discovery feed.
 
 export type RankRow = {
   id: string;

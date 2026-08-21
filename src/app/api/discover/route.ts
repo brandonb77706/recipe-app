@@ -11,6 +11,12 @@ import {
 } from "@/lib/taste";
 import { chipsFromParams } from "@/lib/filters";
 import {
+  corpusStatus,
+  getCorpusRows,
+  processMemoryMb,
+  startCorpus,
+} from "@/lib/corpus";
+import {
   RANK_COLUMNS,
   computeFacets,
   passesChips,
@@ -57,44 +63,35 @@ async function loadCandidates(
   prefs: Preferences | null,
   swiped: ReadonlySet<string>
 ): Promise<{ rows: RankRow[]; error?: string; pagesFetched: number }> {
-  const avoidStrict: string[] = prefs?.strict_proteins ?? [];
-  const avoidSoft: string[] = (prefs?.avoid_proteins ?? []).filter(
-    (p) => !avoidStrict.includes(p)
-  );
-
-  // Every filter here has an exact counterpart in passesHardFilters, which
-  // still runs below as a guard. If the two ever disagree the guard wins and
-  // the feed gets shorter — never wrong, just smaller.
-  const notIn = avoidSoft.length ? `(${avoidSoft.join(",")})` : null;
-  const overlaps = avoidStrict.length ? `{${avoidStrict.join(",")}}` : null;
-
-  const countQuery = () => {
-    let q = supabase
-      .from("recipes")
-      .select("*", { count: "exact", head: true })
-      .eq("saved", false);
-    if (prefs?.max_minutes != null) q = q.lte("total_minutes", prefs.max_minutes);
-    if ((prefs?.diets ?? []).length) q = q.contains("diet_tags", prefs!.diets!);
-    if (notIn) q = q.not("main_protein", "in", notIn);
-    if (overlaps) q = q.not("protein_traces", "ov", overlaps);
-    return q;
-  };
-
-  const pageQuery = (index: number) => {
-    let q = supabase.from("recipes").select(RANK_COLUMNS).eq("saved", false);
-    if (prefs?.max_minutes != null) q = q.lte("total_minutes", prefs.max_minutes);
-    if ((prefs?.diets ?? []).length) q = q.contains("diet_tags", prefs!.diets!);
-    if (notIn) q = q.not("main_protein", "in", notIn);
-    if (overlaps) q = q.not("protein_traces", "ov", overlaps);
-    return q.order("id", { ascending: true }).range(index * PAGE, index * PAGE + PAGE - 1);
-  };
-
-  const { count, error: countError } = await countQuery();
+  // Only `saved = false` is pushed to SQL. Everything else is left to
+  // passesHardFilters, so this path and the in-memory path apply the SAME
+  // implementation of the rules rather than two that have to agree.
+  //
+  // They did not agree. SQL's `.not("main_protein","in",(...))` drops rows
+  // where main_protein IS NULL, because NOT (NULL IN (...)) is NULL in SQL,
+  // while the JS guard lets NULL through — so a recipe with no recorded main
+  // protein was reachable from memory and unreachable from the sweep. Two
+  // implementations of one rule is the bug; deleting one is the fix.
+  //
+  // Cost: this transfers rows the filters would have removed. That's a fallback
+  // path taken only before the corpus is ready, and correctness is worth more
+  // than the bytes.
+  const { count, error: countError } = await supabase
+    .from("recipes")
+    .select("*", { count: "exact", head: true })
+    .eq("saved", false);
   if (countError) return { rows: [], error: countError.message, pagesFetched: 0 };
 
   const pages = Math.max(1, Math.ceil((count ?? 0) / PAGE));
   const results = await Promise.all(
-    Array.from({ length: pages }, (_, i) => pageQuery(i))
+    Array.from({ length: pages }, (_, i) =>
+      supabase
+        .from("recipes")
+        .select(RANK_COLUMNS)
+        .eq("saved", false)
+        .order("id", { ascending: true })
+        .range(i * PAGE, i * PAGE + PAGE - 1)
+    )
   );
 
   const rows: RankRow[] = [];
@@ -139,6 +136,11 @@ export async function GET(req: NextRequest) {
   if ("response" in auth) return auth.response;
   const userId = auth.user.id;
   mark("auth");
+
+  // Kick the corpus load on the first request this process serves. Not awaited:
+  // until it's ready every request simply takes the sweep path below, which is
+  // exactly what happens today. Boot stays non-blocking.
+  startCorpus();
 
   const params = req.nextUrl.searchParams;
   const limit = Math.min(
@@ -193,8 +195,24 @@ export async function GET(req: NextRequest) {
   // Wave 2: the candidate sweep and the swiped-recipe fetch are independent —
   // one reads the corpus, the other reads rows already excluded from it.
   const swipedIds = [...swiped];
+
+  /**
+   * The corpus if it's loaded, otherwise the per-request sweep.
+   *
+   * Same rows either way — the in-memory copy is filtered by the identical
+   * passesHardFilters that guards the SQL path, so a card can't reach the feed
+   * through one route that the other would have excluded.
+   */
+  const cached = getCorpusRows();
+
   const [loaded, tasteChunks] = await Promise.all([
-    loadCandidates(prefs, swiped),
+    cached
+      ? Promise.resolve({
+          rows: cached.filter((row) => passesHardFilters(row, prefs, swiped)),
+          pagesFetched: 0,
+          error: undefined as string | undefined,
+        })
+      : loadCandidates(prefs, swiped),
     Promise.all(
       Array.from({ length: Math.ceil(swipedIds.length / 100) }, (_, i) =>
         supabase
@@ -291,6 +309,8 @@ export async function GET(req: NextRequest) {
   const timing = params.get("timing") === "true"
     ? { ...marks,
         proxyMs: Number(req.headers.get("x-proxy-ms")) || null,
+        corpus: { ...corpusStatus(), servedFromMemory: cached !== null },
+        rssMb: processMemoryMb(),
         total: Math.round((performance.now() - t0) * 10) / 10,
         candidates: candidates.length, pagesFetched: loaded.pagesFetched }
     : undefined;
